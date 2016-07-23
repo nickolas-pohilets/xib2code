@@ -2,19 +2,19 @@ import xml.etree.ElementTree as ET
 from copy import copy
 
 c_string_escapes = {
-    '\"' : '\\\"',
-    '\'' : '\\\'',
-    '\\' : '\\\\',
-    '\a' : '\\a',
-    '\b' : '\\b',
-    '\f' : '\\f',
-    '\n' : '\\n',
-    '\r' : '\\r',
-    '\t' : '\\t',
-    '\v' : '\\v'
+    '\"': '\\\"',
+    '\'': '\\\'',
+    '\\': '\\\\',
+    '\a': '\\a',
+    '\b': '\\b',
+    '\f': '\\f',
+    '\n': '\\n',
+    '\r': '\\r',
+    '\t': '\\t',
+    '\v': '\\v'
 }
 
-view_properties_in_attributes = [
+view_properties_in_attributes = {
     'adjustsFontSizeToFit',
     'baselineAdjustment',
     'contentMode',
@@ -32,11 +32,20 @@ view_properties_in_attributes = [
     'showsVerticalScrollIndicator',
     'misplaced',
     'minimumScaleFactor'
-]
+}
+
+line_break_mode_mapping = {
+    'wordWrap': 'NSLineBreakByWordWrapping',
+    'characterWrap': 'NSLineBreakByCharWrapping',
+    'clip': 'NSLineBreakByClipping',
+    'headTruncation': 'NSLineBreakByTruncatingHead',
+    'tailTruncation': 'NSLineBreakByTruncatingTail',
+    'middleTruncation': 'NSLineBreakByTruncatingMiddle'
+}
 
 
 def escape_string(s: str) -> str:
-    res = '"'
+    res = '@"'
     for c in s:
         esc = c_string_escapes.get(c)
         res += (esc or c)
@@ -124,10 +133,11 @@ class ViewProcessor(object):
         return None
 
     def process_attrs(self, attrs):
-        for key in view_properties_in_attributes:
-            value = attrs.pop(key, None)
-            if value is None:
+        keys = list(attrs.keys())
+        for key in keys:
+            if key not in view_properties_in_attributes:
                 continue
+            value = attrs.pop(key)
             value = self.decode_property(key, value)
             self.write_property(key, value)
 
@@ -157,11 +167,35 @@ class ViewProcessor(object):
     def write_property(self, key, value):
         if self.should_skip_property(key):
             return
-        self.ctx.write(self.var_name + '.' + key + ' = ' + value + ';')
+        self.write_property_impl(key, value)
+
+    def write_property_impl(self, key, value):
+        if key == 'verticalHuggingPriority':
+            self.ctx.write('[' + self.var_name + ' setContentHuggingPriority:' + value + ' forAxis:UILayoutConstraintAxisVertical];')
+        elif key == 'horizontalHuggingPriority':
+            self.ctx.write('[' + self.var_name + ' setContentHuggingPriority:' + value + ' forAxis:UILayoutConstraintAxisHorizontal];')
+        else:
+            if key == 'adjustsFontSizeToFit':
+                key = 'adjustsFontSizeToFitWidth'
+            elif key == 'fontDescription':
+                key = 'font'
+            elif key == 'highlightedColor':
+                key = 'highlightedTextColor'
+            elif key == 'clipsSubviews':
+                key = 'clipsToBounds'
+            self.ctx.write(self.var_name + '.' + key + ' = ' + value + ';')
 
     def decode_property(self, key, value):
         if key == 'contentMode':
             return self.ctx.decode_content_mode(value)
+        elif key == 'textAlignment':
+            return self.ctx.decode_text_alignment(value)
+        elif key == 'lineBreakMode':
+            return self.ctx.decode_line_break_mode(value)
+        elif key == 'baselineAdjustment':
+            return self.ctx.decode_baseline_adjustment(value)
+        elif key == 'text':
+            return escape_string(value)
         else:
             return value
 
@@ -171,8 +205,15 @@ class RootViewProcessor(ViewProcessor):
         return 'self'
 
     def should_skip_property(self, key):
-        return key == 'autoresizingMask' \
-            or ViewProcessor.should_skip_property(self, key)
+        skipped_properties = {
+            'autoresizingMask',
+            'simulatedStatusBarMetrics',
+            'simulatedDestinationMetrics',
+            'canvasLocation'
+        }
+        if key in skipped_properties:
+            return True
+        return ViewProcessor.should_skip_property(self, key)
 
     def construct_instance(self, view, attrs):
         pass
@@ -342,13 +383,31 @@ class Context(object):
 
         self.write('[' + parent_name + ' addConstraint:' + c_name + '];')
 
-    def decode_layout_attribute(self, a: str):
+    def decode_layout_attribute(self, a: str) -> str:
         if a is None:
             return 'NSLayoutAttributeNotAnAttribute'
-        return 'NSLayoutAttribute' + a[0].upper() + a[1:]
+        return self.decode_enum_with_prefix('NSLayoutAttribute', a)
 
-    def decode_content_mode(self, a: str):
-        return 'UIViewContentMode' + a[0].upper() + a[1:]
+    def decode_content_mode(self, a: str) -> str:
+        return self.decode_enum_with_prefix('UIViewContentMode', a)
+
+    def decode_text_alignment(self, a: str) -> str:
+        return self.decode_enum_with_prefix('NSTextAlignment', a)
+
+    def decode_line_break_mode(self, a: str) -> str:
+        return self.decode_enum_with_mapping(line_break_mode_mapping, a)
+
+    def decode_baseline_adjustment(self, a: str) -> str:
+        return self.decode_enum_with_prefix('UIBaselineAdjustment', a)
+
+    def decode_enum_with_mapping(self, mapping, a):
+        val = mapping.get(a)
+        if val is None:
+            raise UnknownAttributeValue()
+        return val
+
+    def decode_enum_with_prefix(self, prefix, a):
+        return prefix + a[0].upper() + a[1:]
 
     def process_user_defined_runtime_attributes(self, attributes, proc):
         self.check_attributes(attributes.attrib)
@@ -445,7 +504,8 @@ class Context(object):
     def parse_color(self, attrs: dict) -> str:
         color_space = attrs.pop('colorSpace', None)
         if color_space is None:
-            pass
+            system_color = attrs.pop('cocoaTouchSystemColor')
+            return '[UIColor ' + system_color + ']'
         elif color_space == 'custom':
             custom_color_space = attrs.pop('customColorSpace')
             if custom_color_space == 'calibratedWhite':
