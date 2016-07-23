@@ -1,81 +1,6 @@
 import xml.etree.ElementTree as ET
 from copy import copy
-
-c_string_escapes = {
-    '\"': '\\\"',
-    '\'': '\\\'',
-    '\\': '\\\\',
-    '\a': '\\a',
-    '\b': '\\b',
-    '\f': '\\f',
-    '\n': '\\n',
-    '\r': '\\r',
-    '\t': '\\t',
-    '\v': '\\v'
-}
-
-view_properties_in_attributes = {
-    'adjustsFontSizeToFit',
-    'baselineAdjustment',
-    'contentMode',
-    'horizontalHuggingPriority',
-    'lineBreakMode',
-    'opaque',
-    'text',
-    'textAlignment',
-    'translatesAutoresizingMaskIntoConstraints',
-    'userInteractionEnabled',
-    'verticalHuggingPriority',
-    'showsHorizontalScrollIndicator',
-    'multipleTouchEnabled',
-    'clipsSubviews',
-    'showsVerticalScrollIndicator',
-    'misplaced',
-    'minimumScaleFactor'
-}
-
-line_break_mode_mapping = {
-    'wordWrap': 'NSLineBreakByWordWrapping',
-    'characterWrap': 'NSLineBreakByCharWrapping',
-    'clip': 'NSLineBreakByClipping',
-    'headTruncation': 'NSLineBreakByTruncatingHead',
-    'tailTruncation': 'NSLineBreakByTruncatingTail',
-    'middleTruncation': 'NSLineBreakByTruncatingMiddle'
-}
-
-
-def escape_string(s: str) -> str:
-    res = '@"'
-    for c in s:
-        esc = c_string_escapes.get(c)
-        res += (esc or c)
-    res += '"'
-    return res
-
-
-class XIBError(Exception):
-    pass
-
-
-class BadXibFormat(XIBError):
-    pass
-
-
-class UnknownAttribute(XIBError):
-    pass
-
-
-class UnknownAttributeValue(XIBError):
-    pass
-
-
-class UnknownTag(XIBError):
-    pass
-
-
-class MultipleRootObjects(XIBError):
-    pass
-
+from decoders import *
 
 class Connection(object):
     def __init__(self, parent_id, property_name, destination_id, connection_id):
@@ -86,6 +11,26 @@ class Connection(object):
 
 
 class ViewProcessor(object):
+    decoder_func_for_attribute = {
+        'adjustsFontSizeToFit': decode_no_op,
+        'baselineAdjustment': decode_baseline_adjustment,
+        'contentMode': decode_content_mode,
+        'horizontalHuggingPriority': decode_no_op,
+        'lineBreakMode': decode_line_break_mode,
+        'opaque': decode_no_op,
+        'text': decode_string,
+        'textAlignment': decode_text_alignment,
+        'translatesAutoresizingMaskIntoConstraints': decode_no_op,
+        'userInteractionEnabled': decode_no_op,
+        'verticalHuggingPriority': decode_no_op,
+        'showsHorizontalScrollIndicator': decode_no_op,
+        'multipleTouchEnabled': decode_no_op,
+        'clipsSubviews': decode_no_op,
+        'showsVerticalScrollIndicator': decode_no_op,
+        'misplaced': decode_no_op,
+        'minimumScaleFactor': decode_no_op
+    }
+
     def __init__(self, ctx):
         self.ctx = ctx
         self.xib_id = None
@@ -106,10 +51,8 @@ class ViewProcessor(object):
         self.process_attrs(attrs)
         self.ctx.check_attributes(attrs)
 
-        self.before_elements()
         for e in view:
             self.process_element(e)
-        self.after_elements()
 
         return self.var_name
 
@@ -135,14 +78,15 @@ class ViewProcessor(object):
     def process_attrs(self, attrs):
         keys = list(attrs.keys())
         for key in keys:
-            if key not in view_properties_in_attributes:
+            decoder = self.decoder_for_attribute(key)
+            if decoder is None:
                 continue
             value = attrs.pop(key)
-            value = self.decode_property(key, value)
+            value = decoder(value)
             self.write_property(key, value)
 
-    def before_elements(self):
-        pass
+    def decoder_for_attribute(self, key):
+        return ViewProcessor.decoder_func_for_attribute.get(key)
 
     def process_element(self, e):
         val = self.ctx.parse_value_element(e)
@@ -158,9 +102,6 @@ class ViewProcessor(object):
         else:
             raise UnknownTag()
 
-    def after_elements(self):
-        pass
-
     def should_skip_property(self, key):
         return key in {'frame', 'misplaced'}
 
@@ -175,29 +116,13 @@ class ViewProcessor(object):
         elif key == 'horizontalHuggingPriority':
             self.ctx.write('[' + self.var_name + ' setContentHuggingPriority:' + value + ' forAxis:UILayoutConstraintAxisHorizontal];')
         else:
-            if key == 'adjustsFontSizeToFit':
-                key = 'adjustsFontSizeToFitWidth'
-            elif key == 'fontDescription':
-                key = 'font'
-            elif key == 'highlightedColor':
-                key = 'highlightedTextColor'
-            elif key == 'clipsSubviews':
-                key = 'clipsToBounds'
-            self.ctx.write(self.var_name + '.' + key + ' = ' + value + ';')
+            property_name = self.property_name_for_key(key)
+            self.ctx.write(self.var_name + '.' + property_name + ' = ' + value + ';')
 
-    def decode_property(self, key, value):
-        if key == 'contentMode':
-            return self.ctx.decode_content_mode(value)
-        elif key == 'textAlignment':
-            return self.ctx.decode_text_alignment(value)
-        elif key == 'lineBreakMode':
-            return self.ctx.decode_line_break_mode(value)
-        elif key == 'baselineAdjustment':
-            return self.ctx.decode_baseline_adjustment(value)
-        elif key == 'text':
-            return escape_string(value)
-        else:
-            return value
+    def property_name_for_key(self, key):
+        if key == 'clipsSubviews':
+            return 'clipsToBounds'
+        return key
 
 
 class RootViewProcessor(ViewProcessor):
@@ -221,13 +146,48 @@ class RootViewProcessor(ViewProcessor):
     def process_attrs(self, attrs):
         attrs.pop('contentMode', None)
 
+
 class LabelProcessor(ViewProcessor):
+    decoder_func_for_attribute = {
+        'adjustsFontSizeToFit': decode_no_op,
+        'baselineAdjustment': decode_baseline_adjustment,
+        'lineBreakMode': decode_line_break_mode,
+        'text': decode_string,
+        'textAlignment': decode_text_alignment,
+        'minimumScaleFactor': decode_no_op
+    }
+
     def default_class(self):
         return 'UILabel'
 
+    def decoder_for_attribute(self, key):
+        return LabelProcessor.decoder_func_for_attribute.get(key) or super().decoder_for_attribute(key)
+
+    def property_name_for_key(self, key):
+        if key == 'adjustsFontSizeToFit':
+            return 'adjustsFontSizeToFitWidth'
+        elif key == 'fontDescription':
+            return 'font'
+        elif key == 'highlightedColor':
+            return 'highlightedTextColor'
+        elif key == 'clipsSubviews':
+            return 'clipsToBounds'
+        else:
+            return super().property_name_for_key(key)
+
+
 class ScrollViewProcessor(ViewProcessor):
+    decoder_for_attribute = {
+        'showsHorizontalScrollIndicator': decode_no_op,
+        'showsVerticalScrollIndicator': decode_no_op,
+    }
+
     def default_class(self):
         return 'UIScrollView'
+
+    def decoder_for_attribute(self, key):
+        return ScrollViewProcessor.decoder_func_for_attribute.get(key) or super(self).decoder_for_attribute(key)
+
 
 class Context(object):
     def __init__(self, output_stream):
@@ -374,40 +334,14 @@ class Context(object):
             second_name = self.id_to_var[second_id]
         self.write('NSLayoutConstraint *' + c_name + ' = [NSLayoutConstraint constraintWithItem:' + first_name)
         indent = ' ' * (51 + len(c_name))
-        self.write(indent + ' attribute:' + self.decode_layout_attribute(first_attr))
+        self.write(indent + ' attribute:' + decode_layout_attribute(first_attr))
         self.write(indent + ' relatedBy:NSLayoutRelationEqual')
         self.write(indent + '    toItem:' + second_name)
-        self.write(indent + ' attribute:' + self.decode_layout_attribute(second_attr))
+        self.write(indent + ' attribute:' + decode_layout_attribute(second_attr))
         self.write(indent + 'multiplier:' + multiplier)
         self.write(indent + '  constant:' + constant + '];')
 
         self.write('[' + parent_name + ' addConstraint:' + c_name + '];')
-
-    def decode_layout_attribute(self, a: str) -> str:
-        if a is None:
-            return 'NSLayoutAttributeNotAnAttribute'
-        return self.decode_enum_with_prefix('NSLayoutAttribute', a)
-
-    def decode_content_mode(self, a: str) -> str:
-        return self.decode_enum_with_prefix('UIViewContentMode', a)
-
-    def decode_text_alignment(self, a: str) -> str:
-        return self.decode_enum_with_prefix('NSTextAlignment', a)
-
-    def decode_line_break_mode(self, a: str) -> str:
-        return self.decode_enum_with_mapping(line_break_mode_mapping, a)
-
-    def decode_baseline_adjustment(self, a: str) -> str:
-        return self.decode_enum_with_prefix('UIBaselineAdjustment', a)
-
-    def decode_enum_with_mapping(self, mapping, a):
-        val = mapping.get(a)
-        if val is None:
-            raise UnknownAttributeValue()
-        return val
-
-    def decode_enum_with_prefix(self, prefix, a):
-        return prefix + a[0].upper() + a[1:]
 
     def process_user_defined_runtime_attributes(self, attributes, proc):
         self.check_attributes(attributes.attrib)
@@ -426,7 +360,7 @@ class Context(object):
         if value is not None:
             self.check_elemnts(attribute)
             if value_type == 'string':
-                val = escape_string(value)
+                val = decode_string(value)
             else:
                 raise UnknownAttributeValue(0)
         else:

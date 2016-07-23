@@ -43,7 +43,7 @@ def iterate_files(args):
 def run_tool():
     args = arg_parser.parse_args()
     for (input_path, output_path) in iterate_files(args):
-        print((input_path, output_path))
+        xib2code.process_xib(input_path, output_path)
 
 if __name__ == '__main__':
     run_tool()
