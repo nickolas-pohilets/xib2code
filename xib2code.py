@@ -3,11 +3,39 @@ from ViewProcessor import *
 
 
 class Connection(object):
-    def __init__(self, parent_id, property_name, destination_id, connection_id):
+    pass
+
+
+class OutletConnection(Connection):
+    def __init__(self, parent_id, property_name, destination_id):
         self.parent_id = parent_id
-        self.connection_id = connection_id
         self.property_name = property_name
         self.destination_id = destination_id
+
+
+class OutletCollectionConnection(Connection):
+    def __init__(self, parent_id, property_name):
+        self.parent_id = parent_id
+        self.property_name = property_name
+        self.destination_ids = []
+
+    @staticmethod
+    def add_to_collection(collections_list: list, collections_dict: dict, parent_id, property_name, destination_id):
+        key = (parent_id, property_name)
+        collection = collections_dict.get(key)
+        if collection is None:
+            collection = OutletCollectionConnection(parent_id, property_name)
+            collections_dict[key] = collection
+            collections_list.append(collection)
+        collection.destination_ids.append(destination_id)
+
+
+class ActionConnection(Connection):
+    def __init__(self, parent_id, selector, destination_id, event_type):
+        self.parent_id = parent_id
+        self.selector = selector
+        self.destination_id = destination_id
+        self.event_type = event_type
 
 
 class Context(object):
@@ -15,6 +43,7 @@ class Context(object):
         self.id_to_var = {}
         self.var_counters = {}
         self.connections = []
+        self.connection_collections = {}
         self.outs = output_stream
         self.root_view_id = None
         self.doc_version = None
@@ -45,7 +74,11 @@ class Context(object):
 
         for e in doc:
             if e.tag == 'dependencies':
-                self.process_dependencies(e)
+                # Ignore
+                pass
+            elif e.tag == 'customFonts':
+                # Ignore
+                pass
             elif e.tag == 'objects':
                 self.process_objects(e)
             else:
@@ -56,16 +89,14 @@ class Context(object):
 
         self.outs.write('}\n')
 
-    def process_dependencies(self, deps):
-        # Ignore
-        pass
-
     def process_objects(self, objs):
         self.check_attributes(objs.attrib)
         found_root_object = False
         for obj in objs:
             if obj.tag == 'placeholder':
                 self.process_placeholder(obj)
+            elif obj.tag == 'customObject':
+                self.process_custom_object(obj)
             else:
                 if found_root_object:
                     raise MultipleRootObjects()
@@ -96,6 +127,22 @@ class Context(object):
             else:
                 raise UnknownTag()
 
+    def process_custom_object(self, obj):
+        attrs = copy(obj.attrib)
+        object_id = attrs.pop('id', None)
+        object_class = attrs.pop('customClass')
+        self.check_attributes(attrs)
+        name = self.generate_var_name('obj')
+        self.id_to_var[object_id] = name
+
+        self.write(object_class + ' *' + name + ' = [[' + object_class + ' alloc] init];')
+
+        for e in obj:
+            if e.tag == 'connections':
+                self.process_connections(e, parent_id=object_id)
+            else:
+                raise UnknownTag()
+
     def process_root_view(self, view):
         proc = RootViewProcessor(self)
         proc.process(view)
@@ -113,6 +160,12 @@ class Context(object):
             proc = LabelProcessor(self)
         elif obj.tag == 'scrollView':
             proc = ScrollViewProcessor(self)
+        elif obj.tag == 'button':
+            proc = ButtonProcessor(self)
+        elif obj.tag == 'imageView':
+            proc = ImageViewProcessor(self)
+        elif obj.tag == 'mapView':
+            proc = MapViewProcessor(self)
         else:
             raise UnknownTag()
         return proc.process(obj)
@@ -135,12 +188,14 @@ class Context(object):
         attrs = copy(c.attrib)
         first_id = attrs.pop('firstItem', None)
         first_attr = attrs.pop('firstAttribute')
+        relation = attrs.pop('relation', 'equal')
         second_id = attrs.pop('secondItem', None)
         second_attr = attrs.pop('secondAttribute', None)
         constant = attrs.pop('constant', '0')
         multiplier = attrs.pop('multiplier', '1')
         c_id = attrs.pop('id')
         is_placeholder = attrs.pop('placeholder', 'NO')
+        priority = attrs.pop('priority', None)
         self.check_attributes(attrs)
         if self.get_bool(is_placeholder):
             return
@@ -159,11 +214,14 @@ class Context(object):
         self.write('NSLayoutConstraint *' + c_name + ' = [NSLayoutConstraint constraintWithItem:' + first_name)
         indent = ' ' * (51 + len(c_name))
         self.write(indent + ' attribute:' + decode_layout_attribute(first_attr))
-        self.write(indent + ' relatedBy:NSLayoutRelationEqual')
+        self.write(indent + ' relatedBy:' + decode_layout_relation(relation))
         self.write(indent + '    toItem:' + second_name)
         self.write(indent + ' attribute:' + decode_layout_attribute(second_attr))
         self.write(indent + 'multiplier:' + multiplier)
         self.write(indent + '  constant:' + constant + '];')
+
+        if priority is not None:
+            self.write(c_name + '.priority = ' + priority + ';')
 
         self.write('[' + parent_name + ' addConstraint:' + c_name + '];')
 
@@ -185,6 +243,8 @@ class Context(object):
             self.check_elemnts(attribute)
             if value_type == 'string':
                 val = decode_string(value)
+            elif value_type == 'boolean':
+                val = value
             else:
                 raise UnknownAttributeValue(0)
         else:
@@ -205,61 +265,95 @@ class Context(object):
         key = attrs.pop('key', None)
         if key is None:
             return None
+        elif e.tag == 'integer':
+            return key, self.parse_number(attrs, e)
         elif e.tag == 'real':
-            return key, self.parse_real(attrs)
+            return key, self.parse_number(attrs, e)
         elif e.tag == 'point':
-            return key, self.parse_point(attrs)
-        if e.tag == 'rect':
-            return key, self.parse_rect(attrs)
+            return key, self.parse_point(attrs, e)
+        elif e.tag == 'rect':
+            return key, self.parse_rect(attrs, e)
+        elif e.tag == 'inset':
+            return key, self.parse_inset(attrs, e)
         elif e.tag == 'autoresizingMask':
-            return key, self.parse_autoresizing_mask(attrs)
+            return key, self.parse_autoresizing_mask(attrs, e)
         elif e.tag == 'nil':
-            return key, self.parse_nil(attrs)
+            return key, self.parse_nil(attrs, e)
+        elif e.tag == 'string':
+            return key, self.parse_string(attrs, e)
         elif e.tag == 'color':
-            return key, self.parse_color(attrs)
+            return key, self.parse_color(attrs, e)
         elif e.tag == 'fontDescription':
-            return key, self.parse_font_description(attrs)
+            return key, self.parse_font_description(attrs, e)
         elif e.tag in { 'freeformSimulatedSizeMetrics' }:
             self.check_attributes(attrs)
+            self.check_elemnts(e)
             return key, e.tag
         else:
             return None
 
-    def parse_real(self, attrs: dict) -> str:
+    def parse_number(self, attrs: dict, e: ET.Element) -> str:
         value = attrs.pop('value')
         self.check_attributes(attrs)
+        self.check_elemnts(e)
         return value
 
-    def parse_point(self, attrs: dict) -> str:
+    def parse_point(self, attrs: dict, e: ET.Element) -> str:
         x = attrs.pop('x')
         y = attrs.pop('y')
         self.check_attributes(attrs)
+        self.check_elemnts(e)
         return 'CGPointMake(' + ', '.join([x, y]) + ')'
 
-    def parse_rect(self, attrs: dict):
+    def parse_rect(self, attrs: dict, e: ET.Element) -> str:
         x = attrs.pop('x')
         y = attrs.pop('y')
         w = attrs.pop('width')
         h = attrs.pop('height')
         self.check_attributes(attrs)
+        self.check_elemnts(e)
         return 'CGRectMake(' + ', '.join([x, y, w, h]) + ')'
 
-    def parse_autoresizing_mask(self, attrs: dict) -> str:
+    def parse_inset(self, attrs: dict, e: ET.Element) -> str:
+        left = attrs.pop('minX')
+        right = attrs.pop('maxX')
+        top = attrs.pop('minY')
+        bottom = attrs.pop('maxY')
+        self.check_attributes(attrs)
+        self.check_elemnts(e)
+        return 'UIEdgeInsetsMake(' + ', '.join([top, left, bottom, right]) + ')'
+
+    def parse_autoresizing_mask(self, attrs: dict, e: ET.Element) -> str:
         flags = []
+        if self.get_bool(attrs.pop('flexibleMinX', 'NO')):
+            flags.append('UIViewAutoresizingFlexibleLeftMargin')
         if self.get_bool(attrs.pop('widthSizable', 'NO')):
             flags.append('UIViewAutoresizingFlexibleWidth')
+        if self.get_bool(attrs.pop('flexibleMaxX', 'NO')):
+            flags.append('UIViewAutoresizingFlexibleRightMargin')
+        if self.get_bool(attrs.pop('flexibleMinY', 'NO')):
+            flags.append('UIViewAutoresizingFlexibleTopMargin')
         if self.get_bool(attrs.pop('heightSizable', 'NO')):
             flags.append('UIViewAutoresizingFlexibleHeight')
+        if self.get_bool(attrs.pop('flexibleMaxY', 'NO')):
+            flags.append('UIViewAutoresizingFlexibleBottomMargin')
         self.check_attributes(attrs)
+        self.check_elemnts(e)
         if len(flags) == 0:
             return 'UIViewAutoresizingNone'
         return ' | '.join(flags)
 
-    def parse_nil(self, attrs: dict) -> str:
+    def parse_nil(self, attrs: dict, e: ET.Element) -> str:
         self.check_attributes(attrs)
+        self.check_elemnts(e)
         return 'nil'
 
-    def parse_color(self, attrs: dict) -> str:
+    def parse_string(self, attrs: dict, e: ET.Element) -> str:
+        self.check_attributes(attrs)
+        self.check_elemnts(e)
+        return e.text
+
+    def parse_color(self, attrs: dict, e: ET.Element) -> str:
         color_space = attrs.pop('colorSpace', None)
         if color_space is None:
             system_color = attrs.pop('cocoaTouchSystemColor')
@@ -267,35 +361,52 @@ class Context(object):
         elif color_space == 'custom':
             custom_color_space = attrs.pop('customColorSpace')
             if custom_color_space == 'calibratedWhite':
-                return self.parse_white_color(attrs)
+                return self.parse_white_color(attrs, e)
             else:
                 raise UnknownAttributeValue()
         elif color_space == 'calibratedWhite':
-            return self.parse_white_color(attrs)
+            return self.parse_white_color(attrs, e)
         elif color_space == 'calibratedRGB':
-            return self.parse_rgb_color(attrs)
+            return self.parse_rgb_color(attrs, e)
         else:
             raise UnknownAttributeValue()
 
-    def parse_white_color(self, attrs: dict) -> str:
+    def parse_white_color(self, attrs: dict, e: ET.Element) -> str:
         alpha = attrs.pop('alpha', '1')
         white = attrs.pop('white')
         self.check_attributes(attrs)
+        self.check_elemnts(e)
         return '[UIColor colorWithWhite:' + white + ' alpha:' + alpha + ']'
 
-    def parse_rgb_color(self, attrs: dict) -> str:
+    def parse_rgb_color(self, attrs: dict, e: ET.Element) -> str:
         alpha = attrs.pop('alpha', '1')
         red = attrs.pop('red')
         green = attrs.pop('green')
         blue = attrs.pop('blue')
         self.check_attributes(attrs)
+        self.check_elemnts(e)
         return '[UIColor colorWithRed:' + red + ' green:' + green + ' blue:' + blue + ' alpha:' + alpha + ']'
 
-    def parse_font_description(self, attrs: dict) -> str:
-        font_type = attrs.pop('type')
+    def parse_font_description(self, attrs: dict, e: ET.Element) -> str:
+        font_type = attrs.pop('type', None)
         font_size = attrs.pop('pointSize')
-        if font_type == 'system':
-            return '[UIFont systemFontOfSize:' + font_size + ']'
+        if font_type is None:
+            font_name = attrs.pop('name')
+            font_family = attrs.pop('family')
+            if font_family != font_name:
+                raise UnknownAttributeValue()
+            self.check_attributes(attrs)
+            self.check_elemnts(e)
+            return '[UIFont fontWithName: ' + decode_string(font_name) + ' pointSize:' + font_size + ']'
+        elif font_type == 'system':
+            font_weight = attrs.pop('weight', None)
+            self.check_attributes(attrs)
+            self.check_elemnts(e)
+            if font_weight is None:
+                return '[UIFont systemFontOfSize:' + font_size + ']'
+            else:
+                font_weight = decode_font_weight(font_weight)
+                return '[UIFont systemFontOfSize:' + font_size + ' weight:' + font_weight + ']'
         else:
             raise UnknownAttributeValue()
 
@@ -311,34 +422,79 @@ class Context(object):
         for c in connections:
             if c.tag == 'outlet':
                 self.process_outlet(c, parent_id)
+            elif c.tag == 'outletCollection':
+                self.process_outlet_collection(c, parent_id)
+            elif c.tag == 'action':
+                self.process_action(c, parent_id)
             else:
                 raise UnknownTag()
 
     def process_outlet(self, outlet, parent_id):
         attrs = copy(outlet.attrib)
-        c = Connection(
+        attrs.pop('id')
+        c = OutletConnection(
             parent_id=parent_id,
             property_name=attrs.pop('property'),
             destination_id=attrs.pop('destination'),
-            connection_id=attrs.pop('id')
         )
         self.check_attributes(attrs)
+        self.check_elemnts(outlet)
+        self.connections.append(c)
+
+    def process_outlet_collection(self, outlet, parent_id):
+        attrs = copy(outlet.attrib)
+        attrs.pop('id')
+        OutletCollectionConnection.add_to_collection(
+            self.connections,
+            self.connection_collections,
+            parent_id=parent_id,
+            property_name=attrs.pop('property'),
+            destination_id=attrs.pop('destination'),
+        )
+        self.check_attributes(attrs)
+        self.check_elemnts(outlet)
+
+    def process_action(self, action, parent_id):
+        attrs = copy(action.attrib)
+        attrs.pop('id')
+        c = ActionConnection(
+            parent_id=parent_id,
+            selector=attrs.pop('selector'),
+            destination_id=attrs.pop('destination'),
+            event_type=decode_control_event(attrs.pop('eventType')),
+        )
+        self.check_attributes(attrs)
+        self.check_elemnts(action)
         self.connections.append(c)
 
     def write_connection(self, c: Connection):
         s = ''
         host_var_name = self.id_to_var[c.parent_id]
-        if c.property_name[0] == '_':
-            if host_var_name != 'self':
+        if isinstance(c, (OutletConnection, OutletCollectionConnection)):
+            if c.property_name[0] == '_':
+                if host_var_name != 'self':
+                    s += host_var_name
+                    s += '->'
+            else:
                 s += host_var_name
-                s += '->'
-        else:
-            s += host_var_name
-            s += '.'
-        s += c.property_name
-        s += ' = '
-        s += self.id_to_var[c.destination_id]
-        s += ';'
+                s += '.'
+            s += c.property_name
+            s += ' = '
+            if isinstance(c, OutletConnection):
+                destination_name = self.id_to_var[c.destination_id]
+                s += destination_name
+            else:
+                destination_names = [self.id_to_var[d_id] for d_id in c.destination_ids]
+                s += '@[' + ', '.join(destination_names) + ']'
+            s += ';'
+        elif isinstance(c, ActionConnection):
+            destination_name = self.id_to_var[c.destination_id]
+            s += '['
+            s += destination_name
+            s += 'addTarget: ' + host_var_name
+            s += ' action:@selector(' + c.selector + ')'
+            s += ' forControlEvents:' + c.event_type
+            s += '];'
         self.write(s)
 
     def check_attributes(self, attrs):

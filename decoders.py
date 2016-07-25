@@ -42,6 +42,10 @@ def decode_layout_attribute(a: str) -> str:
     return decode_enum_with_prefix('NSLayoutAttribute', a)
 
 
+def decode_layout_relation(a: str) -> str:
+    return decode_enum_with_prefix('NSLayoutRelation', a)
+
+
 def decode_content_mode(a: str) -> str:
     return decode_enum_with_prefix('UIViewContentMode', a)
 
@@ -56,6 +60,34 @@ def decode_line_break_mode(a: str) -> str:
 
 def decode_baseline_adjustment(a: str) -> str:
     return decode_enum_with_prefix('UIBaselineAdjustment', a)
+
+
+def decode_content_horizontal_alignment(a: str) -> str:
+    return decode_enum_with_prefix('UIControlContentHorizontalAlignment', a)
+
+
+def decode_content_vertical_alignment(a: str) -> str:
+    return decode_enum_with_prefix('UIControlContentVerticalAlignment', a)
+
+
+def decode_control_state(a: str) -> str:
+    return decode_enum_with_prefix('UIControlState', a)
+
+
+def decode_control_event(a: str) -> str:
+    return decode_enum_with_prefix('UIControlEvent', a)
+
+
+def decode_font_weight(a: str) -> str:
+    return decode_enum_with_prefix('UIFontWeight', a)
+
+
+def decode_map_type(a: str) -> str:
+    return decode_enum_with_prefix('MKMapType', a)
+
+
+def decode_button_type(a: str) -> str:
+    return decode_enum_with_prefix('UIButtonType', a)
 
 
 def decode_enum_with_mapping(mapping, a):
