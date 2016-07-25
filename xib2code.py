@@ -51,6 +51,9 @@ class Context(object):
             else:
                 raise UnknownTag()
 
+        for c in self.connections:
+            self.write_connection(c)
+
         self.outs.write('}\n')
 
     def process_dependencies(self, deps):
@@ -321,6 +324,22 @@ class Context(object):
         )
         self.check_attributes(attrs)
         self.connections.append(c)
+
+    def write_connection(self, c: Connection):
+        s = ''
+        host_var_name = self.id_to_var[c.parent_id]
+        if c.property_name[0] == '_':
+            if host_var_name != 'self':
+                s += host_var_name
+                s += '->'
+        else:
+            s += host_var_name
+            s += '.'
+        s += c.property_name
+        s += ' = '
+        s += self.id_to_var[c.destination_id]
+        s += ';'
+        self.write(s)
 
     def check_attributes(self, attrs):
         if len(attrs):
