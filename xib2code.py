@@ -81,6 +81,9 @@ class Context(object):
                 pass
             elif e.tag == 'objects':
                 self.process_objects(e)
+            elif e.tag == 'resources':
+                # Ignore
+                pass
             else:
                 raise UnknownTag()
 
@@ -166,6 +169,8 @@ class Context(object):
             proc = ImageViewProcessor(self)
         elif obj.tag == 'mapView':
             proc = MapViewProcessor(self)
+        elif obj.tag == 'pageControl':
+            proc = PageControlProcessor(self)
         else:
             raise UnknownTag()
         return proc.process(obj)

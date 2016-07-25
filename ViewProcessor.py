@@ -216,9 +216,10 @@ class LabelProcessor(ViewProcessor):
 
 
 class ScrollViewProcessor(ViewProcessor):
-    decoder_for_attribute = {
+    decoder_func_for_attribute = {
         'showsHorizontalScrollIndicator': decode_bool,
         'showsVerticalScrollIndicator': decode_bool,
+        'pagingEnabled': decode_bool,
     }
 
     def default_class(self):
@@ -310,7 +311,15 @@ class ButtonProcessor(ControlProcessor):
 
 
 class ImageViewProcessor(ViewProcessor):
-    pass
+    decoder_func_for_attribute = {
+        'image': decode_image_with_name,
+    }
+
+    def default_class(self):
+        return 'UIImageView'
+
+    def decoder_for_attribute(self, key):
+        return ImageViewProcessor.decoder_func_for_attribute.get(key) or super().decoder_for_attribute(key)
 
 
 class MapViewProcessor(ViewProcessor):
@@ -328,3 +337,15 @@ class MapViewProcessor(ViewProcessor):
 
     def decoder_for_attribute(self, key):
         return MapViewProcessor.decoder_func_for_attribute.get(key) or super().decoder_for_attribute(key)
+
+
+class PageControlProcessor(ControlProcessor):
+    decoder_func_for_attribute = {
+        'numberOfPages': decode_number,
+    }
+
+    def default_class(self):
+        return 'UIPageControl'
+
+    def decoder_for_attribute(self, key):
+        return PageControlProcessor.decoder_func_for_attribute.get(key) or super().decoder_for_attribute(key)

@@ -94,6 +94,10 @@ def decode_button_type(a: str) -> str:
     return decode_enum_with_prefix('UIButtonType', a)
 
 
+def decode_image_with_name(a: str) -> str:
+    return '[UIImage imageNamed:' + decode_string(a) + ']'
+
+
 def decode_enum_with_mapping(mapping, a):
     val = mapping.get(a)
     if val is None:
