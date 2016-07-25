@@ -23,8 +23,12 @@ line_break_mode_mapping = {
 }
 
 
-def decode_no_op(a: str) -> str:
+def decode_number(a: str) -> str:
     return a
+
+
+def decode_bool(b: str) -> str:
+    return b
 
 
 def decode_string(s: str) -> str:

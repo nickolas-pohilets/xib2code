@@ -82,24 +82,24 @@ class ObjectProcessor(object):
 
 class ViewProcessor(ObjectProcessor):
     decoder_func_for_attribute = {
-        'adjustsFontSizeToFit': decode_no_op,
+        'adjustsFontSizeToFit': decode_bool,
         'baselineAdjustment': decode_baseline_adjustment,
         'contentMode': decode_content_mode,
-        'horizontalHuggingPriority': decode_no_op,
-        'horizontalCompressionResistancePriority': decode_no_op,
+        'horizontalHuggingPriority': decode_number,
+        'horizontalCompressionResistancePriority': decode_number,
         'lineBreakMode': decode_line_break_mode,
-        'opaque': decode_no_op,
+        'opaque': decode_bool,
         'text': decode_string,
         'textAlignment': decode_text_alignment,
-        'translatesAutoresizingMaskIntoConstraints': decode_no_op,
-        'userInteractionEnabled': decode_no_op,
-        'verticalHuggingPriority': decode_no_op,
-        'verticalCompressionResistancePriority': decode_no_op,
-        'multipleTouchEnabled': decode_no_op,
-        'clipsSubviews': decode_no_op,
-        'misplaced': decode_no_op,
-        'minimumScaleFactor': decode_no_op,
-        'clearsContextBeforeDrawing': decode_no_op
+        'translatesAutoresizingMaskIntoConstraints': decode_bool,
+        'userInteractionEnabled': decode_bool,
+        'verticalHuggingPriority': decode_number,
+        'verticalCompressionResistancePriority': decode_number,
+        'multipleTouchEnabled': decode_bool,
+        'clipsSubviews': decode_bool,
+        'misplaced': decode_bool,
+        'minimumScaleFactor': decode_number,
+        'clearsContextBeforeDrawing': decode_bool
     }
 
     def generate_name(self):
@@ -185,15 +185,15 @@ class RootViewProcessor(ViewProcessor):
 
 class LabelProcessor(ViewProcessor):
     decoder_func_for_attribute = {
-        'adjustsFontSizeToFit': decode_no_op,
-        'adjustsLetterSpacingToFitWidth': decode_no_op,
+        'adjustsFontSizeToFit': decode_bool,
+        'adjustsLetterSpacingToFitWidth': decode_bool,
         'baselineAdjustment': decode_baseline_adjustment,
         'lineBreakMode': decode_line_break_mode,
         'text': decode_string,
         'textAlignment': decode_text_alignment,
-        'minimumScaleFactor': decode_no_op,
-        'minimumFontSize': decode_no_op,
-        'numberOfLines': decode_no_op
+        'minimumScaleFactor': decode_number,
+        'minimumFontSize': decode_number,
+        'numberOfLines': decode_number
     }
 
     def default_class(self):
@@ -217,8 +217,8 @@ class LabelProcessor(ViewProcessor):
 
 class ScrollViewProcessor(ViewProcessor):
     decoder_for_attribute = {
-        'showsHorizontalScrollIndicator': decode_no_op,
-        'showsVerticalScrollIndicator': decode_no_op,
+        'showsHorizontalScrollIndicator': decode_bool,
+        'showsVerticalScrollIndicator': decode_bool,
     }
 
     def default_class(self):
@@ -315,12 +315,12 @@ class ImageViewProcessor(ViewProcessor):
 
 class MapViewProcessor(ViewProcessor):
     decoder_func_for_attribute = {
-        'scrollEnabled': decode_no_op,
-        'pitchEnabled': decode_no_op,
-        'rotateEnabled': decode_no_op,
+        'scrollEnabled': decode_bool,
+        'pitchEnabled': decode_bool,
+        'rotateEnabled': decode_bool,
         'mapType': decode_map_type,
-        'zoomEnabled': decode_no_op,
-        'showsUserLocation': decode_no_op,
+        'zoomEnabled': decode_bool,
+        'showsUserLocation': decode_bool,
     }
 
     def default_class(self):
