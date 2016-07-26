@@ -19,7 +19,15 @@ line_break_mode_mapping = {
     'clip': 'NSLineBreakByClipping',
     'headTruncation': 'NSLineBreakByTruncatingHead',
     'tailTruncation': 'NSLineBreakByTruncatingTail',
-    'middleTruncation': 'NSLineBreakByTruncatingMiddle'
+    'middleTruncation': 'NSLineBreakByTruncatingMiddle',
+    # For paragraph style
+    'wordWrapping': 'NSLineBreakByWordWrapping',
+}
+
+string_attribute_mapping = {
+    'NSColor': 'NSForegroundColorAttributeName',
+    'NSFont': 'NSFontAttributeName',
+    'NSParagraphStyle': 'NSParagraphStyleAttributeName'
 }
 
 
@@ -96,6 +104,14 @@ def decode_button_type(a: str) -> str:
 
 def decode_image_with_name(a: str) -> str:
     return '[UIImage imageNamed:' + decode_string(a) + ']'
+
+
+def decode_string_attribute_name(a: str) -> str:
+    return decode_enum_with_mapping(string_attribute_mapping, a)
+
+
+def decode_writing_direction(a: str) -> str:
+    return decode_enum_with_prefix('NSWritingDirection', a)
 
 
 def decode_enum_with_mapping(mapping, a):

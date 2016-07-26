@@ -290,6 +290,12 @@ class Context(object):
             return key, self.parse_color(attrs, e)
         elif e.tag == 'fontDescription':
             return key, self.parse_font_description(attrs, e)
+        elif e.tag == 'font':
+            return key, self.parse_font(attrs, e)
+        elif e.tag == 'paragraphStyle':
+            return key, self.parse_paragraph_style(attrs, e)
+        elif e.tag == 'attributedString':
+            return key, self.parse_attributed_string(attrs, e)
         elif e.tag in { 'freeformSimulatedSizeMetrics' }:
             self.check_attributes(attrs)
             self.check_elemnts(e)
@@ -356,7 +362,7 @@ class Context(object):
     def parse_string(self, attrs: dict, e: ET.Element) -> str:
         self.check_attributes(attrs)
         self.check_elemnts(e)
-        return e.text
+        return decode_string(e.text)
 
     def parse_color(self, attrs: dict, e: ET.Element) -> str:
         color_space = attrs.pop('colorSpace', None)
@@ -402,7 +408,7 @@ class Context(object):
                 raise UnknownAttributeValue()
             self.check_attributes(attrs)
             self.check_elemnts(e)
-            return '[UIFont fontWithName: ' + decode_string(font_name) + ' pointSize:' + font_size + ']'
+            return '[UIFont fontWithName: ' + decode_string(font_name) + ' size:' + font_size + ']'
         elif font_type == 'system':
             font_weight = attrs.pop('weight', None)
             self.check_attributes(attrs)
@@ -414,6 +420,87 @@ class Context(object):
                 return '[UIFont systemFontOfSize:' + font_size + ' weight:' + font_weight + ']'
         else:
             raise UnknownAttributeValue()
+
+    def parse_font(self, attrs: dict, e: ET.Element) -> str:
+        font_name = attrs.pop('name')
+        font_size = attrs.pop('size')
+        self.check_attributes(attrs)
+        self.check_elemnts(e)
+        return '[UIFont fontWithName: ' + decode_string(font_name) + ' size:' + font_size + ']'
+
+    def parse_paragraph_style(self, attrs: dict, e: ET.Element) -> str:
+        alignment = decode_text_alignment(attrs.pop('alignment'))
+        line_break_mode = decode_line_break_mode(attrs.pop('lineBreakMode'))
+        base_writing_direction = decode_writing_direction(attrs.pop('baseWritingDirection'))
+        self.check_attributes(attrs)
+        self.check_elemnts(e)
+        p_name = self.generate_var_name('p')
+        self.write('NSMutableParagraphStyle *' + p_name + ' = [[NSParagraphStyle defaultParagraphStyle] mutableCopy];')
+        self.write(p_name + '.alignment = ' + alignment + ';')
+        self.write(p_name + '.lineBreakMode = ' + line_break_mode + ';')
+        self.write(p_name + '.baseWritingDirection = ' + base_writing_direction + ';')
+        return p_name
+
+    def parse_attributed_string(self, attrs: dict, s: ET.Element) -> str:
+        self.check_attributes(attrs)
+        fragments = []
+        for e in s:
+            if e.tag == 'fragment':
+                fragments.append(e)
+            else:
+                raise UnknownTag()
+        if len(fragments) == 0:
+            return '[[NSAttributedString alloc] init]'
+        if len(fragments) == 1:
+            return self.process_attributed_string_fragment(fragments[0])
+        s_name = self.generate_var_name('s')
+        self.write('NSMutableAttributedString *' + s_name + ' = [[NSMutableAttributedString alloc] init];')
+        for e in fragments:
+            fragment_str = self.process_attributed_string_fragment(e)
+            self.write('[' + s_name + ' appendAttributedString:' + fragment_str + '];')
+        return s_name
+
+    def process_attributed_string_fragment(self, fragment: ET.Element):
+        attrs = copy(fragment.attrib)
+        content = attrs.pop('content', None)
+        if content is not None:
+            content = decode_string(content)
+        self.check_attributes(attrs)
+        attrs_dict = None
+        for e in fragment:
+            if e.tag == 'string' and content is None:
+                e_val = self.parse_value_element(e)
+                if e_val is None:
+                    raise UnknownAttributeValue()
+                (key, content) = e_val
+                if key != 'content':
+                    raise UnknownAttributeValue()
+            elif e.tag == 'attributes':
+                attrs_dict = self.process_attributed_string_fragment_attributes(e)
+            else:
+                raise UnknownTag()
+        if attrs_dict is None:
+            raise UnknownTag()
+        return '[[NSAttributedString alloc] initWithString:' + content + 'attributes:' + attrs_dict + ']'
+
+    def process_attributed_string_fragment_attributes(self, attributes: ET.Element):
+        self.check_attributes(attributes.attrib)
+        attributes_info = []
+        for e in attributes:
+            e_val = self.parse_value_element(e)
+            if e_val is None:
+                raise UnknownTag()
+            (key, value) = e_val
+            attribute_name = decode_string_attribute_name(key)
+            attributes_info.append(attribute_name + ' : ' + value)
+        dict_name = self.generate_var_name('a')
+        k = len(attributes_info)
+        self.write('NSDictionary *' + dict_name + ' = @{')
+        for attribute_pair in attributes_info:
+            self.write('    ' + attribute_pair + (',' if k > 1 else ''))
+            k -= 1
+        self.write('};')
+        return dict_name
 
     def get_bool(self, v):
         if v == 'YES':
@@ -496,7 +583,7 @@ class Context(object):
             destination_name = self.id_to_var[c.destination_id]
             s += '['
             s += destination_name
-            s += 'addTarget: ' + host_var_name
+            s += ' addTarget: ' + host_var_name
             s += ' action:@selector(' + c.selector + ')'
             s += ' forControlEvents:' + c.event_type
             s += '];'

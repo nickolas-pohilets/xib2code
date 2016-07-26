@@ -45,6 +45,7 @@ class ObjectProcessor(object):
 
     def process_attrs(self, attrs):
         keys = list(attrs.keys())
+        keys.sort()
         for key in keys:
             decoder = self.decoder_for_attribute(key)
             if decoder is None:
@@ -184,6 +185,10 @@ class RootViewProcessor(ViewProcessor):
 
 
 class LabelProcessor(ViewProcessor):
+    def __init__(self, ctx):
+        ViewProcessor.__init__(self, ctx)
+        self.uses_attributed_text = None
+
     decoder_func_for_attribute = {
         'adjustsFontSizeToFit': decode_bool,
         'adjustsLetterSpacingToFitWidth': decode_bool,
@@ -199,6 +204,10 @@ class LabelProcessor(ViewProcessor):
     def default_class(self):
         return 'UILabel'
 
+    def process_attrs(self, attrs):
+        self.uses_attributed_text = self.ctx.get_bool(attrs.pop('usesAttributedText', 'NO'))
+        super().process_attrs(attrs)
+
     def decoder_for_attribute(self, key):
         return LabelProcessor.decoder_func_for_attribute.get(key) or super().decoder_for_attribute(key)
 
@@ -213,6 +222,15 @@ class LabelProcessor(ViewProcessor):
             return 'clipsToBounds'
         else:
             return super().property_name_for_key(key)
+
+    def write_property_impl(self, key, value):
+        if key == 'text':
+            if self.uses_attributed_text:
+                raise UnknownAttributeValue()
+        elif key == 'attributedText':
+            if not self.uses_attributed_text:
+                raise UnknownAttributeValue()
+        super().write_property_impl(key, value)
 
 
 class ScrollViewProcessor(ViewProcessor):
