@@ -31,11 +31,15 @@ string_attribute_mapping = {
 }
 
 
-def decode_number(a: str) -> str:
+def decode_number(a: str, as_object=False) -> str:
+    if as_object:
+        return '@' + a
     return a
 
 
-def decode_bool(b: str) -> str:
+def decode_bool(b: str, as_object=False) -> str:
+    if as_object:
+        return '@' + b
     return b
 
 

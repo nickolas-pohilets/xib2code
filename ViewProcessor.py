@@ -118,7 +118,7 @@ class ViewProcessor(ObjectProcessor):
             if r.get('key') == 'frame':
                 attrs = copy(r.attrib)
                 attrs.pop('key')
-                return self.ctx.parse_rect(attrs, r)
+                return self.ctx.parse_rect(attrs, r, as_object=False)
         return None
 
     def process_attrs(self, attrs):
@@ -294,7 +294,7 @@ class ControlStateProcessor(ObjectProcessor):
 
     def write_property_impl(self, key, value):
         v_name = self.parent_proc.var_name
-        s_name = ' ' + decode_enum_with_prefix(' set', key) + ':'
+        s_name = decode_enum_with_prefix(' set', key) + ':'
         self.ctx.write('[' + v_name + s_name + value + ' forState:' + self.button_state + '];')
 
 
@@ -326,6 +326,11 @@ class ButtonProcessor(ControlProcessor):
     def decoder_for_state_attribute(self, key):
         return ButtonProcessor.decoder_func_for_state_attribute.get(key) \
             or super().decoder_for_state_attribute(key)
+
+    def write_property_impl(self, key, value):
+        if key == 'lineBreakMode':
+            key = 'titleLabel.' + key
+        super().write_property_impl(key, value)
 
 
 class ImageViewProcessor(ViewProcessor):

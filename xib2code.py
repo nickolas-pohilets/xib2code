@@ -181,13 +181,17 @@ class Context(object):
         name = self.generate_var_name('v')
         self.id_to_var[v_id] = name
 
-    def process_constraints(self, constraints, parent_id):
+    def process_constraints(self, constraints, parent_name):
         self.check_attributes(constraints.attrib)
+        constraint_names = []
         for e in constraints:
             if e.tag == 'constraint':
-                self.process_constraint(e, parent_id)
+                c_name = self.process_constraint(e, parent_name)
+                if c_name is not None:
+                    constraint_names.append(c_name)
             else:
                 raise UnknownTag()
+        self.write('[' + parent_name + ' addConstraints:@[' + ', '.join(constraint_names) + ']];')
 
     def process_constraint(self, c, parent_name):
         attrs = copy(c.attrib)
@@ -203,7 +207,7 @@ class Context(object):
         priority = attrs.pop('priority', None)
         self.check_attributes(attrs)
         if self.get_bool(is_placeholder):
-            return
+            return None
 
         c_name = self.generate_var_name('c')
         self.id_to_var[c_id] = c_name
@@ -228,7 +232,7 @@ class Context(object):
         if priority is not None:
             self.write(c_name + '.priority = ' + priority + ';')
 
-        self.write('[' + parent_name + ' addConstraint:' + c_name + '];')
+        return c_name
 
     def process_user_defined_runtime_attributes(self, attributes, proc):
         self.check_attributes(attributes.attrib)
@@ -241,7 +245,7 @@ class Context(object):
     def process_user_defined_runtime_attribute(self, attribute, proc: ViewProcessor):
         attrs = copy(attribute.attrib)
         value_type = attrs.pop('type')
-        key_path = attrs.pop('keyPath')
+        key_path = decode_string(attrs.pop('keyPath'))
         value = attrs.pop('value', None)
         self.check_attributes(attrs)
         if value is not None:
@@ -249,7 +253,7 @@ class Context(object):
             if value_type == 'string':
                 val = decode_string(value)
             elif value_type == 'boolean':
-                val = value
+                val = decode_bool(value, as_object=True)
             else:
                 raise UnknownAttributeValue(0)
         else:
@@ -257,31 +261,31 @@ class Context(object):
             for e in attribute:
                 if val is not None:
                     raise UnknownTag()
-                e_val = self.parse_value_element(e)
+                e_val = self.parse_value_element(e, as_object=True)
                 if e_val is None:
                     raise UnknownTag()
                 (key, val) = e_val
                 if key != 'value':
                     raise UnknownAttributeValue()
-        proc.write_property(key_path, val)
+        self.write('[' + proc.var_name + ' setValue:' + val + ' forKeyPath:' + key_path + '];')
 
-    def parse_value_element(self, e):
+    def parse_value_element(self, e, as_object=False):
         attrs = copy(e.attrib)
         key = attrs.pop('key', None)
         if key is None:
             return None
         elif e.tag == 'integer':
-            return key, self.parse_number(attrs, e)
+            return key, self.parse_number(attrs, e, as_object)
         elif e.tag == 'real':
-            return key, self.parse_number(attrs, e)
+            return key, self.parse_number(attrs, e, as_object)
         elif e.tag == 'point':
-            return key, self.parse_point(attrs, e)
+            return key, self.parse_point(attrs, e, as_object)
         elif e.tag == 'rect':
-            return key, self.parse_rect(attrs, e)
+            return key, self.parse_rect(attrs, e, as_object)
         elif e.tag == 'inset':
-            return key, self.parse_inset(attrs, e)
+            return key, self.parse_inset(attrs, e, as_object)
         elif e.tag == 'autoresizingMask':
-            return key, self.parse_autoresizing_mask(attrs, e)
+            return key, self.parse_autoresizing_mask(attrs, e, as_object)
         elif e.tag == 'nil':
             return key, self.parse_nil(attrs, e)
         elif e.tag == 'string':
@@ -303,38 +307,49 @@ class Context(object):
         else:
             return None
 
-    def parse_number(self, attrs: dict, e: ET.Element) -> str:
+    def parse_number(self, attrs: dict, e: ET.Element, as_object: bool) -> str:
         value = attrs.pop('value')
         self.check_attributes(attrs)
         self.check_elemnts(e)
+        if as_object:
+            value = '@' + value
         return value
 
-    def parse_point(self, attrs: dict, e: ET.Element) -> str:
+    def parse_point(self, attrs: dict, e: ET.Element, as_object: bool) -> str:
         x = attrs.pop('x')
         y = attrs.pop('y')
         self.check_attributes(attrs)
         self.check_elemnts(e)
-        return 'CGPointMake(' + ', '.join([x, y]) + ')'
+        value = 'CGPointMake(' + ', '.join([x, y]) + ')'
+        if as_object:
+            value = '[NSValue valueWithCGPoint:' + value + ']'
+        return value
 
-    def parse_rect(self, attrs: dict, e: ET.Element) -> str:
+    def parse_rect(self, attrs: dict, e: ET.Element, as_object: bool) -> str:
         x = attrs.pop('x')
         y = attrs.pop('y')
         w = attrs.pop('width')
         h = attrs.pop('height')
         self.check_attributes(attrs)
         self.check_elemnts(e)
-        return 'CGRectMake(' + ', '.join([x, y, w, h]) + ')'
+        value = 'CGRectMake(' + ', '.join([x, y, w, h]) + ')'
+        if as_object:
+            value = '[NSValue valueWithCGRect:' + value + ']'
+        return value
 
-    def parse_inset(self, attrs: dict, e: ET.Element) -> str:
+    def parse_inset(self, attrs: dict, e: ET.Element, as_object: bool) -> str:
         left = attrs.pop('minX')
         right = attrs.pop('maxX')
         top = attrs.pop('minY')
         bottom = attrs.pop('maxY')
         self.check_attributes(attrs)
         self.check_elemnts(e)
-        return 'UIEdgeInsetsMake(' + ', '.join([top, left, bottom, right]) + ')'
+        value = 'UIEdgeInsetsMake(' + ', '.join([top, left, bottom, right]) + ')'
+        if as_object:
+            value = '[NSValue valueWithUIEdgeInsets:' + value + ']'
+        return value
 
-    def parse_autoresizing_mask(self, attrs: dict, e: ET.Element) -> str:
+    def parse_autoresizing_mask(self, attrs: dict, e: ET.Element, as_object: bool) -> str:
         flags = []
         if self.get_bool(attrs.pop('flexibleMinX', 'NO')):
             flags.append('UIViewAutoresizingFlexibleLeftMargin')
@@ -351,8 +366,12 @@ class Context(object):
         self.check_attributes(attrs)
         self.check_elemnts(e)
         if len(flags) == 0:
-            return 'UIViewAutoresizingNone'
-        return ' | '.join(flags)
+            value = 'UIViewAutoresizingNone'
+        else:
+            value = ' | '.join(flags)
+        if as_object:
+            value = '@(' + value + ')'
+        return value
 
     def parse_nil(self, attrs: dict, e: ET.Element) -> str:
         self.check_attributes(attrs)
@@ -481,7 +500,7 @@ class Context(object):
                 raise UnknownTag()
         if attrs_dict is None:
             raise UnknownTag()
-        return '[[NSAttributedString alloc] initWithString:' + content + 'attributes:' + attrs_dict + ']'
+        return '[[NSAttributedString alloc] initWithString:' + content + ' attributes:' + attrs_dict + ']'
 
     def process_attributed_string_fragment_attributes(self, attributes: ET.Element):
         self.check_attributes(attributes.attrib)
@@ -582,8 +601,8 @@ class Context(object):
         elif isinstance(c, ActionConnection):
             destination_name = self.id_to_var[c.destination_id]
             s += '['
-            s += destination_name
-            s += ' addTarget: ' + host_var_name
+            s += host_var_name
+            s += ' addTarget: ' + destination_name
             s += ' action:@selector(' + c.selector + ')'
             s += ' forControlEvents:' + c.event_type
             s += '];'
